@@ -130,7 +130,7 @@ print("Processing complete. Details and transcripts (if available) have been sav
 
 #Filtering the data to find relevant videos
 
-df = pd.read_csv('channel_video_ids.csv')
+df = pd.read_csv('data.csv')
 
 # Define the keywords you want to search for
 keywords = ['keyword1','keyword2'] 

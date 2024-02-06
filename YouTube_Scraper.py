@@ -1,225 +1,152 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "6d87a209-c0b8-4896-b5ba-e8f801fa7cd2",
-   "metadata": {
-    "tags": []
-   },
-   "outputs": [],
-   "source": [
-    "from googleapiclient.discovery import build\n",
-    "import os\n",
-    "from pytube import YouTube\n",
-    "from youtube_transcript_api import YouTubeTranscriptApi\n",
-    "import csv\n",
-    "import re\n",
-    "import requests\n",
-    "import pandas as pd\n",
-    "from bs4 import BeautifulSoup"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "74bff932-cd14-4067-a425-829febb3cfb4",
-   "metadata": {
-    "tags": []
-   },
-   "outputs": [],
-   "source": [
-    "api_key = 'xxxxxxxxxxxxxxxx'\n",
-    "youtube_channel_id = 'xxxxxxxxxxxx'\n",
-    "\n",
-    "youtube = build('youtube', 'v3', developerKey=api_key)\n",
-    "\n",
-    "def get_video_ids(youtube, channel_id, max_results=50):\n",
-    "    video_ids = []\n",
-    "    next_page_token = None\n",
-    "\n",
-    "    while True:\n",
-    "        request = youtube.search().list(\n",
-    "            part=\"id\",\n",
-    "            channelId=channel_id,\n",
-    "            maxResults=max_results,\n",
-    "            pageToken=next_page_token,\n",
-    "            type=\"video\"\n",
-    "        )\n",
-    "        response = request.execute()\n",
-    "\n",
-    "        video_ids.extend([item['id']['videoId'] for item in response.get('items', [])])\n",
-    "\n",
-    "        next_page_token = response.get('nextPageToken')\n",
-    "        if not next_page_token:\n",
-    "            break\n",
-    "\n",
-    "    return video_ids\n",
-    "\n",
-    "# Fetch the video IDs\n",
-    "video_ids = get_video_ids(youtube, youtube_channel_id)\n",
-    "\n",
-    "# Optionally, save to a file\n",
-    "with open('data.txt', 'w') as file:\n",
-    "    for video_id in video_ids:\n",
-    "        file.write(f\"{video_id}\\n\")\n",
-    "\n",
-    "print(f\"Saved {len(video_ids)} video IDs to channel_video_ids.txt\")"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "6b6600d0-10a9-439a-8a8b-98c44e71b1de",
-   "metadata": {
-    "tags": []
-   },
-   "outputs": [],
-   "source": [
-    "#Scraping the transcripts and video details from the video_ids list\n",
-    "\n",
-    "def extract_video_description_and_links(video_url):\n",
-    "    try:\n",
-    "        soup = BeautifulSoup(requests.get(video_url).content, 'html.parser')\n",
-    "        pattern = re.compile('(?<=shortDescription\":\").*(?=\",\"isCrawlable)')\n",
-    "        description = pattern.findall(str(soup))[0].replace('\\\\n', '\\n')\n",
-    "\n",
-    "        video_links = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\\\(\\\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', description)\n",
-    "\n",
-    "        return description, video_links\n",
-    "    except Exception as e:\n",
-    "        return None, None\n",
-    "\n",
-    "def get_transcript(video_id):\n",
-    "    try:\n",
-    "        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)\n",
-    "        transcript = ' '.join([i['text'] for i in transcript_list])\n",
-    "        return transcript, 'en'  \n",
-    "    except NoTranscriptFound as e:\n",
-    "        try:\n",
-    "            available_transcripts = YouTubeTranscriptApi.list_transcripts(video_id)\n",
-    "            for transcript in available_transcripts:\n",
-    "                if transcript.is_generated:\n",
-    "                    transcript_list = transcript.fetch()\n",
-    "                    language = transcript.language_code\n",
-    "                    combined_transcript = ' '.join([i['text'] for i in transcript_list])\n",
-    "                    return combined_transcript, language\n",
-    "\n",
-    "            return None, None\n",
-    "        except Exception as e:\n",
-    " \n",
-    "            return None, None\n",
-    "    except Exception as e:\n",
-    " \n",
-    "        return None, None\n",
-    "\n",
-    "def get_video_details(video_id):\n",
-    "    try:\n",
-    "        yt = YouTube(f'https://www.youtube.com/watch?v={video_id}')\n",
-    "        return {\n",
-    "            'title': yt.title,\n",
-    "            'publish_date': yt.publish_date,\n",
-    "            'video_link': yt.watch_url\n",
-    "        }\n",
-    "    except Exception as e:\n",
-    " \n",
-    "        return None\n",
-    "\n",
-    "\n",
-    "video_ids_file = 'data.txt' \n",
-    "output_csv_file = 'data.csv'\n",
-    "\n",
-    "\n",
-    "with open(video_ids_file, 'r') as file:\n",
-    "    video_ids = [line.strip() for line in file.readlines()]\n",
-    "\n",
-    "\n",
-    "with open(output_csv_file, 'w', newline='', encoding='utf-8') as csvfile:\n",
-    "    fieldnames = ['video_id', 'title', 'publish_date', 'video_link', 'transcript', 'language', 'description', 'description_links']\n",
-    "    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)\n",
-    "    writer.writeheader()\n",
-    "\n",
-    "    # Process each video ID\n",
-    "    for video_id in video_ids:\n",
-    "        video_details = get_video_details(video_id)\n",
-    "        if video_details:\n",
-    "            transcript, language = get_transcript(video_id)\n",
-    "            description, video_links = extract_video_description_and_links(video_details['video_link'])\n",
-    "            if transcript:\n",
-    "                writer.writerow({\n",
-    "                    'video_id': video_id,\n",
-    "                    'title': video_details['title'],\n",
-    "                    'publish_date': video_details['publish_date'].strftime('%Y-%m-%d') if video_details['publish_date'] else 'N/A',\n",
-    "                    'video_link': video_details['video_link'],\n",
-    "                    'transcript': transcript,\n",
-    "                    'language': language,\n",
-    "                    'description': description,\n",
-    "                    'description_links': ', '.join(video_links) if video_links else 'No links found in description'\n",
-    "                })\n",
-    "\n",
-    "print(\"Processing complete. Details and transcripts (if available) have been saved to the CSV file.\")"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "d14b93cd-21ff-4606-9206-ffa36ab2ad26",
-   "metadata": {
-    "tags": []
-   },
-   "outputs": [],
-   "source": [
-    "#Filtering the \n",
-    "df = pd.read_csv('channel_video_ids.csv')\n",
-    "\n",
-    "# Define the keywords you want to search for\n",
-    "keywords = ['keyword1','keyword2'] \n",
-    "\n",
-    "\n",
-    "df['transcript'] = df['transcript'].fillna('').astype(str)\n",
-    "df['description'] = df['description'].fillna('').astype(str)\n",
-    "\n",
-    "\n",
-    "combined_series = df['transcript'] + \" \" + df['description']\n",
-    "\n",
-    "\n",
-    "keyword_mask = combined_series.str.contains('|'.join(keywords), case=False, regex=True)\n",
-    "\n",
-    "\n",
-    "filtered_df = df[keyword_mask]\n",
-    "\n",
-    "\n",
-    "filtered_df.to_csv('search_data.csv', index=False)  "
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "5e87ed1d-0e92-4c7d-88d9-e3ff2efe5893",
-   "metadata": {},
-   "outputs": [],
-   "source": []
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.11.5"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+from googleapiclient.discovery import build
+import os
+from pytube import YouTube
+from youtube_transcript_api import YouTubeTranscriptApi
+import csv
+import re
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup
+
+api_key = 'xxxxxxxxxxxxxxxx'
+youtube_channel_id = 'xxxxxxxxxxxx'
+
+youtube = build('youtube', 'v3', developerKey=api_key)
+
+def get_video_ids(youtube, channel_id, max_results=50):
+    video_ids = []
+    next_page_token = None
+
+    while True:
+        request = youtube.search().list(
+            part="id",
+            channelId=channel_id,
+            maxResults=max_results,
+            pageToken=next_page_token,
+            type="video"
+        )
+        response = request.execute()
+
+        video_ids.extend([item['id']['videoId'] for item in response.get('items', [])])
+
+        next_page_token = response.get('nextPageToken')
+        if not next_page_token:
+            break
+
+    return video_ids
+
+# Fetch the video IDs
+video_ids = get_video_ids(youtube, youtube_channel_id)
+
+# Optionally, save to a file
+with open('data.txt', 'w') as file:
+    for video_id in video_ids:
+        file.write(f"{video_id}\n")
+
+print(f"Saved {len(video_ids)} video IDs to channel_video_ids.txt")
+
+#Scraping the transcripts and video details from the video_ids list
+
+def extract_video_description_and_links(video_url):
+    try:
+        soup = BeautifulSoup(requests.get(video_url).content, 'html.parser')
+        pattern = re.compile('(?<=shortDescription":").*(?=","isCrawlable)')
+        description = pattern.findall(str(soup))[0].replace('\\n', '\n')
+
+        video_links = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', description)
+
+        return description, video_links
+    except Exception as e:
+        return None, None
+
+def get_transcript(video_id):
+    try:
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript = ' '.join([i['text'] for i in transcript_list])
+        return transcript, 'en'  
+    except NoTranscriptFound as e:
+        try:
+            available_transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+            for transcript in available_transcripts:
+                if transcript.is_generated:
+                    transcript_list = transcript.fetch()
+                    language = transcript.language_code
+                    combined_transcript = ' '.join([i['text'] for i in transcript_list])
+                    return combined_transcript, language
+
+            return None, None
+        except Exception as e:
+ 
+            return None, None
+    except Exception as e:
+ 
+        return None, None
+
+def get_video_details(video_id):
+    try:
+        yt = YouTube(f'https://www.youtube.com/watch?v={video_id}')
+        return {
+            'title': yt.title,
+            'publish_date': yt.publish_date,
+            'video_link': yt.watch_url
+        }
+    except Exception as e:
+ 
+        return None
+
+
+video_ids_file = 'data.txt' 
+output_csv_file = 'data.csv'
+
+
+with open(video_ids_file, 'r') as file:
+    video_ids = [line.strip() for line in file.readlines()]
+
+
+with open(output_csv_file, 'w', newline='', encoding='utf-8') as csvfile:
+    fieldnames = ['video_id', 'title', 'publish_date', 'video_link', 'transcript', 'language', 'description', 'description_links']
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    writer.writeheader()
+
+    # Process each video ID
+    for video_id in video_ids:
+        video_details = get_video_details(video_id)
+        if video_details:
+            transcript, language = get_transcript(video_id)
+            description, video_links = extract_video_description_and_links(video_details['video_link'])
+            if transcript:
+                writer.writerow({
+                    'video_id': video_id,
+                    'title': video_details['title'],
+                    'publish_date': video_details['publish_date'].strftime('%Y-%m-%d') if video_details['publish_date'] else 'N/A',
+                    'video_link': video_details['video_link'],
+                    'transcript': transcript,
+                    'language': language,
+                    'description': description,
+                    'description_links': ', '.join(video_links) if video_links else 'No links found in description'
+                })
+
+print("Processing complete. Details and transcripts (if available) have been saved to the CSV file.")
+
+#Filtering the data to find relevant videos
+
+df = pd.read_csv('channel_video_ids.csv')
+
+# Define the keywords you want to search for
+keywords = ['keyword1','keyword2'] 
+
+
+df['transcript'] = df['transcript'].fillna('').astype(str)
+df['description'] = df['description'].fillna('').astype(str)
+
+
+combined_series = df['transcript'] + " " + df['description']
+
+
+keyword_mask = combined_series.str.contains('|'.join(keywords), case=False, regex=True)
+
+
+filtered_df = df[keyword_mask]
+
+
+filtered_df.to_csv('search_data.csv', index=False)  
